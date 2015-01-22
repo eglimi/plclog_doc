@@ -1,0 +1,8 @@
+site_name: plclog
+repo_url: https://github.com/wisoltech/plclog_doc
+site_description: PLC logging
+site_author: wisol technologie GmbH
+docs_dir: doc
+pages:
+  - ['index.md', 'Übersicht']
+  - ['plc-guide-de.md', 'SPS Dokumentation Deutsch']
