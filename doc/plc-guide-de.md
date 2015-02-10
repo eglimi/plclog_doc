@@ -1,295 +1,136 @@
-# plclog Bedienungsanleitung
+# Bedienungsanleitung
 
-Der wisol PLC Logserver besteht aus 2 Teilen: Zum einen der Server, welcher Nachrichten einer SIEMENS SPS entgegennimmt und verarbeitet. Zum anderen die SPS, welche eben diese Nachrichten versendet. Diese Bedienungsanleitung enthält die nötigen Informationen, um eine SPS einzurichten und die Nachrichten zu einem wisol Logserver senden zu können.
+Der wisol PLC Logserver besteht aus 2 Teilen: Einem Server, der auf einem PC läuft und auf Nachrichten einer SPS wartet, diese entgegennimmt und in eine Datenbank schreibt. Auf diesen Server können Sie mittels Webbrowser zugreifen und sich die Einträge anzeigen lassen.
+Auf der anderen Seite ist die SPS Komponente, welche ein Interface (FC) zur Verfügung stellt. Sowie Sie über einen Aufruf dieses FC's eine Nachricht versenden, legt dieser FC die Nachricht im Sendepuffer ab.
+Der log_master wird zyklisch im OB1 aufgerufen und schickt die Nachrichten im Sendepuffer als UDP Nachricht über das Ethernet an den Server.
 
-Zudem bietet dieses Dokument auch einen Einblick in das S7-Programm des PLC Logservers. Im Appendix finden Sie eine Auflistung aller im Programm verwendeten Bausteine und Funktionen. 
+## Serverkomponente
 
-Die Anleitung richtet sich an Personen, welche den PLC Logserver in ein bestehendes System einbinden, oder unser S7-Programm als Vorlage für ein neues Projekt verwenden möchten. Das Programm wurde grösstenteils in der S7 Hochsprache SCL (structured control language) geschrieben. Sämtliche SCL-Quellen werden mitgeliefert und können beliebig angepasst werden. Falls Sie keine S7-SCL Lizenz besitzen, können Sie die in AWL übersetzten Bausteine gleichermassen in Ihrem Programm verwenden. 
+Die Serverkomponente ist als Download für die Betriebssysteme:
+* Windows 7 (64Bit)
+* Windows 7 (32Bit)
+* Linux
+* Raspberry
+erhältlich. Bitte laden Sie die entsprechende Komponente herunter und führen Sie diese auf Ihrem PC (oder Server) aus.
+Wenn der Server erfolgreich gestartet ist, sollten folgende Ausgaben ersichtlich sein:
+2015/01/25 18:42:38 Preparing database.
+2015/01/25 18:42:38 Database prepared.
+2015/01/25 18:42:38 Listening for PLC packets on UDP host 0.0.0.0 and port 3810
+2015/01/25 18:42:38 Program Running. Waiting for termination.
+Webserver running on :8080
 
-Diese Anleitung setzt Grundkenntnisse über die Programmierung einer Speicherprogrammierbaren Steuerung von SIEMENS unter Anwendung des SIMATIC Managers (STEP7 V5.5) voraus. 
+Sie können nun die Website mit den Logmeldungen über "http://localhost:8080" oder "http://IP_adresse_des_Servers:8080" erreichen. Wenn Sie den Server zum ersten Mal starten, sind noch keine Einträge in der Liste ersichtlich. Ein Stoppen und erneutes Starten des Servers wird die Logmeldungen in der Datenbank nicht löschen. Die alten, gespeicherten Meldungen sind weiterhin ersichtlich. Wenn Sie die Meldungen löschen möchten, müssen Sie die Datei "plclog.db" entfernen. Beim nächsten Start des Servers wird dann eine neue Datenbank angelegt.
 
-Unser S7-Programm finden Sie auf unserer [Webseite][plclog]. Der S7 Source Code ist unter der [MIT Lizenz][mit] freigegeben.
+## SPS Komponenten
 
-## Hardwarekonfiguration 
+Ein Beispielprojekt inklusive der Implementierung und aller notwendigen Bausteine finden Sie auf unserer [Website][plclog]. Der Sourcecode ist unter der [MIT Lizenz][mit] freigegeben.
 
-Falls Sie den PLC Logserver in ein bestehendes System einbinden möchten, können Sie die Schritte bis zur Einrichtung der Verbindungsparameter ignorieren.
+### Hardwarekonfiguration
 
-Nachdem Sie unser vorbereitetes S7-Programm [heruntergeladen][plclog] und entpackt haben, öffnen Sie dieses mit dem SIMATIC Manager. 
-Als erstes muss die Hardwarekonfiguration unseres Programmes Ihren Gegebenheiten anpasst werden. Ersetzen Sie die in unserem Programm projektierte CPU (CPU317-2PN/DP V2.6) mit Ihrer eigenen und fügen Sie die Module (zum Beispiel ein CP-Modul, falls Ihre CPU über keine PROFINET-Schnittstelle verfügt) die Sie sonst noch verwenden möchten hinzu.
+In der Hardwarkonfiguration muss keine Anpassung vorgenommen werden. Die Verbindungen zu dem Logserver und die Zuordnung der IP-Adresse zum Server erfolgen während der Laufzeit. Dies hat den Vorteil, dass Sie die Komponenten in eine laufende Anlage integrieren können, ohne dass Sie die SPS stoppen müssen, um die Verbindungsparameter einzustellen.
 
-### Ändern der lokalen IP
+Einzige Voraussetzung ist, dass Sie die Ethernetschnittstelle einem Netzwerk zugeordnet haben und die SPS über eine eigene IP-Adresse, Subnet und gegebenenfalls Default-Gateway (Router) verfügt.
 
-Um eine UDP-Verbindung zwischen der SPS und dem PLC Logserver herstellen zu können, müssen sich beide IP-Adressen im selben Adressbereich befinden. 
-Um nun die IP-Adresse der SPS oder des Kommunikationsmoduls ändern zu können, müssen Sie erneut im SIMATIC Manager die Hardwarekonfiguration aufrufen. Jetzt öffnen Sie mit der rechten Maustaste die Objekteigenschaften der PROFINET-Schnittstelle, und wählen die Schaltfläche "Eigenschaften". Hier können Sie in den Feldern "IP-Adresse" und "Subnetzmaske" Ihre gewünschten Adressen eingeben.
+### Vorbereiten des Programmes
 
-![Hardwarekonfiguration][hw]
+Zum Betrieb des PLClogs sind folgende Siemens Standardbausteine notwendig:
+* FB65 TCON
+* FB66 TDISCON
+* FB67 TUSEND
+Sie finden diese Bausteine in der Standardlibrary von Siemens unter Communication Blocks. Es empfiehlt sich, die originalbausteine von Siemens zu nehmen, die auf Ihre SPS passen. So können sich die Bausteine zur Kommunikation bei der S7-300 und S7-400 unterscheiden.
 
-## Einrichten der Verbindungsparameter
+Des weiteren benötigen Sie folgende Bausteine von uns:
+* FB200 log_master
+* FC200 log_interface
+* DB200 log_masterInstance (InstanzDB des FB200)
+* DB201 log_buffer
+* optional für AWL/KOP/FUP Programme den DB3
 
-Als nächstes muss im S7-Programm die IP-Adresse des PLC Logservers und die Steckplatz ID der PROFINET-Schnittstelle zugewiesen werden. Über was für eine [Steckplatz ID][1] die PROFINET-Schnittstelle verfügt ist wichtig für die SIEMENS eigenen Funktionsbausteine. Diese werden  in unserem Programm verwendet um eine Netzwerkverbindung aufzubauen. 
-In der Hardwarekonfiguration sehen Sie über was für eine Steckplatz ID Ihre SPS oder CP-Modul verfügt (siehe Bild oben: Steckplatz X2 = Steckplatz 2).
+Selbstverständlich können Sie sämtliche Bausteine umbenennen - auf die Funktion hat dies keinen Einfluss.
 
-Um das einstellen der IP-Adresse des PLC Logservers und der Steckplatz ID zu vereinfachen, haben wir den Datenbaustein DB109 erstellt. Dieser ermöglicht es beide Einstellungen am selben Ort zu ändern. Sie können diese Änderungen entweder mit dem KOP/AWL/FUP-Editor oder mit dem SCL-Editor durchführen. Für den SCL-Editor benötigen Sie jedoch eine S7-SCL Lizenz.
+Es befindet sich ebenfalls die SCL Source im Projekt. Daraus können Sie sich die Bausteine auch selbst komplett neu generieren. (Bis auf den DB3, welcher nicht in der Source enthalten ist).
 
-Bitte beachten Sie, dass der Datenbaustein neu [initialisiert][2] werden sobald dieser angepasst oder verändert wurde. Dies ist unabhängig davon, ob das Programm bereits in die SPS geladen wurde.
+### Konfiguration
 
-### Initialisieren eines Datenbausteins
+Nachdem Sie die Komponenten auf der SPS installiert haben, müssen Sie den Empfänger der Nachrichten (den Server) spezifizieren. Dies geschieht im InstanzDB des log_masters (DB200). 
+Sie können dies entweder in dem FB200 in der Schnittstellenbeschreibung anpassen (Schnittstelle -> STAT -> dest_ip_settings -> ip -> field_1 bis 4, wobei Feld 1 das erste Byte der Adresse (192), Feld 2 das zweite Byte der Addresse (168) etc. enthält. Stellen Sie auch die localdeviceit ein. (Steckplatz 2 der Ethernetschnittstelle entspricht der Adresse 2).
 
-Im SIMATIC Manager öffnen Sie den entsprechenden Datenbaustein mit dem KOP/AWL/FUP-Editor. Als nächstes wechseln Sie mit der Tastenkombination "Ctrl + 4" von der Deklarationsansicht in die Datenansicht. Hier können Sie über das Dropdown-Menu "Ansicht" die Schaltfläche "Datenbaustein initialisieren" betätigen. Nun werden die aktuellen Werte des Offline DB's mit den Initialwerten überschrieben. Zuletzt muss der initialisierte DB noch mit der Tastenkombination "Ctrl + L" in die SPS geladen werden.
+Alternativ können Sie direkt den InstanzDB des FB200, den DB200 anpassen. Die Addresse ist ab Addresse 2 (dest_ip_settings) abgelegt. Stellen Sie auch hier die localdeviceid ein (Steckplatz 2 der Ethernetschnittstelle entspricht der Adresse 2. [Steckplatz ID][1]
 
-![Initialisieren des Datenbausteins][dbinit]
+Selbstverständlich können Sie die Anpassungen auch direkt in der SCL Quelle vornehmen.
 
-### Mit dem SCL-Editor
+Sie können die Adresse jederzeit während der Laufzeit durch ändern der Parameter im DB200 anpassen. Die Änderungen werden sofort wirksam, ohne dass die CPU gestoppt werden muss.
 
-Falls Sie über eine S7-SCL Lizenz verfügen können Sie im SIMATIC Manager unter S7-Programm und dann unter Quellen die SCL-Quelle "ip_configuration" mit dem SCL-Editor öffnen. In der Codezeile 24 bis 27 kann die gewünschte IP-Adresse, und in Zeile 30 die Steckplatz ID eingegeben werden.
+### Einbinden in das Programm
 
-Alternativ können Sie die Einstellungen auch im KOP/AWL/FUP-Editor vornehmen. Dies wird im nächsten Abschnitt beschrieben.
+Zum Aktivieren des Logservers müssen Sie diesen (FB200) einerseits im OB100 (Anlauf OB) mit dem Flag startup=true, als auch im OB1 (zyklisch) mit dem Flag startup:=false aufrufen. Es ist wichtig, dass der log_master zyklisch aufgerufen wird, da die verwendeten Siemenskomponenten asynchrone Bausteine sind, die nicht in dem sie aufrufenden Zyklus enden.
 
-~~~ 
-1 //******************************************************************
-2 //************** Datablock definition for IP-Settings **************
-3 //******************************************************************
-4 data_block dest_ip_settings
-5 title   = 'destination ip settings'
-6 family  : 'logutil'
-7 author  : 'wisol'
-8
-9
-10 struct
-11    localdeviceid :byte;
-12 
-13    ip: struct
-14        field_1 : int;
-15        field_2 : int;
-16        field_3 : int;
-17        field_4 : int;
-18 
-19    end_struct;
-20 end_struct
-21 begin
-22 
-23 (*ENTER THE DESTINATION IP ADDRESS: DEFAULT = 192.168.251.55*) 
-24    ip.field_1 := 192; 
-25    ip.field_2 := 168; 
-26    ip.field_3 := 251;
-27    ip.field_4 := 55;
-28 
-29 (*ENTER THE LOCAL DEVICE ID: DEFAULT = B#16#2*)
-30    localdeviceid := B#16#2;
-31 
-32 end_data_block
-~~~
+Der Logserver läuft nun und ist bereit, Nachrichten entgegenzunehmen. 
 
+#### Aufrufe unter SCL:
 
-### Mit dem KOP/AWL/FUP-Editor
+Unter SCL sieht ein Loggingaufruf folgendermassen aus:
 
-Im SIMATIC Manager öffnen Sie den DB109 "dest_ip_settings" mit dem KOP/AWL/FUP-Editor. Mit der Tastenkombination "Ctrl + 5" wechseln Sie in die Deklarationsansicht des DB's, wo nun die IP-Adresse bei den Variablen "dest_ip_settings.ip_field1" bis ".ip_field_4" (DB109.DBW2 bis DBW8) eingetragen werden kann. Die Steckplatz ID kann bei der Variable "dest_ip_settings.localdeviceid" (DB109.DBB0) eingegeben werden.
+log_interface(machine := 1,   // Machine Number for the Server UI z.B. Auto
+              part    := 5,   // Machine Part   for the Server UI z.B. Getriebe
+              level   := 1,   // Message severity for the UI Color, the message appears in
+              msg     := 'Freie Textnachricht mit der ersten Nummer %d !!!',
+              par1    := 41,
+              par2    := 0);
 
-![Ändern der IP/Steckplatz ID im KOP/AWL/FUP-Editor][ipdb]
+Dieser Aufruf würde folgende Nachricht auf dem Server erscheinen lassen:
+  Freie Textnachricht mit der ersten Nummer 41 !!!
 
-### Temporäre Änderung
+#### Aufrufe unter AWL:
 
-Wenn Sie die IP oder die Steckplatz ID zu Testzwecken ändern möchten, kann dies mit Hilfe einer Variablentabelle erreicht werden. Dabei muss der Datenbaustein DB109 nicht neu initialisiert werden. In unserem S7-Programm finden Sie eine Variablentabelle die bereits die wichtigsten Variablen enthält. Öffnen Sie die Tabelle "testing" die Sie im SIMATIC Manager unter S7-Programm/Bausteine finden. Nun können Sie für die IP-Adresse die Variablen "dest_ip_settings.ip_field_1" bis "ip_field_4" mit einem dezimalen Steuerwert überschreiben. Für die Steckplatz ID überschreiben Sie den hexadezimalen Statuswert der Variable "dest_ip_settings.localdeviceid" mit dem entsprechendem Wert. 
+Ein Loggingeintrag unter AWL kann folgendermassen gemacht werden. Bitte beachten Sie, dass unter AWL keine Strings an Funktionen Übergeben werden können. Dies muss mittels Pointer gemacht werden.
 
-Bitte beachten Sie, dass die SPS die temporären Änderungen verliert sobald ein Neustart erfolgt. Das heisst, bei einem Neustart werden die Werte mit den Initialwerten überschrieben.
+Als erstes definieren wir einen DB, der die zu versendenden Textkonserven enthält. In unserem Beispiel ist dies der DB3, bestehend aus diversen einzelnen Textstrings von der Länge 50 Byte.
+Ein Aufruf sieht also folgendermassen aus:
+      CALL "log_interface"                FC200
+       machine :=5                        
+       part    :=1
+       level   :=3
+       msg     :="log_messages".msg1      P#DB3.DBX0.0
+       par1    :=3.1415e+000
+       par2    :=41e+000
 
-![Anpassung der Einstellungen über die Variablentabelle][ipvat]
+Die Ausgabe in diesem Falle ist abhängig von dem Inhalt des DB3 "log_messages".
 
-## Definieren der Log-Nachrichten
+#### Aufrufe unter KOP / FUP
 
-Nachdem die Verbindung zwischen der SPS und dem Logserver parametriert ist, können nun Nachrichten definiert und versendet werden. Die nächsten Abschnitte beschreiben, wie und wo eine Nachricht definiert werden kann, und wie diese versendet wird.
+Leider sind wir nicht in der Lage, ein Beispiel unter KOP/FUP anzubieten, da in unserer Firma niemand diese beiden Sprachen beherrscht. Wir wären froh, wenn sich jemand finden würde, der uns diese Beispiele zusendet.
 
 ### Format einer Log-Nachricht
 
-Eine Nachricht besteht aus drei numerischen Werten (INT), zwei Gleitkomma-Werten (REAL) (Parameter 1 und 2) und einem 50 Zeichen langem Text (STRING). 
-
-Mit den INT-Werten kann eine Nachricht kategorisiert werden. Die folgenden Parameter können gesetzt werden, wobei die Reihenfolge entscheidend ist.
-
+Eine Nachricht besteht aus drei numerischen Werten (INT), zwei Gleitkomma-Werten (REAL) (Parameter 1 und 2) und einem 50 Zeichen langem Text (STRING).
+Mit den INT-Werten kann eine Nachricht kategorisiert werden. Die folgenden Parameter können gesetzt werden: 
 1. Maschine: Beschreibt, um welche Maschine es sich handelt.
 2. Teil: Beschreibt genauer, um welchen Teil der Maschine es sich handelt.
 3. Log-Level: Beschreibt die Wichtigkeit der Nachricht.
+4. Message: Freier Text, in dem bei Verwendung von %d der erste REAL Parameter anstelle dieses Platzhalters ausgegeben wird, bei einem zweiten %d wird der zweite Parameter ausgegeben.
+5. par1: erster optionaler REAL parameter
+6. par2: zweiter optionaler REAL parameter
+ 
+Zum Beispiel wird ein Aufruf mit par1 := 3 und par := 84 bei mitgeben von folgendem String: "Milchtank Nr. %d ist zu %d gefüllt" im UI dargestellt als: "Milchtank Nr. 3 ist zu 84% gefüllt".
 
-Die Vergabe der Werte ist frei und kann an die Gegebenheiten angepasst werden. Anhand dieser Werte können später Nachrichten wieder gefunden werden.
+Folgende Darstellung erhalten Sie bei Verwendung der Platzhalter:
+%g gibt einen REAL Wert aus
+%d gibt einen Integer aus
 
-Die REAL-Werte ermöglichen, 2 beliebige Prozessdaten zu senden. So können z.B. aktuelle Temperaturen, Füllstände, Zeiten, etc. übergeben werden. Diese Werte werden im PLC Logserver in die Nachricht eingebaut.
 
-Mit dem Text wird die eigentliche Nachricht definiert. Diese besteht aus einem Text, welcher maximal 50 Zeichen lang ist (inklusive Leerzeichen). Zudem können mit der Formatanweisungen "%g" die beiden REAL-Werte in die Nachricht eingebettet werden.
-
-Beispiel einer Definition einer Nachricht mit 2 REAL-Werten.
-
-~~~
-Temp. Pt100: Mantel = %g; Innen = %g
-~~~
-
-Diese Nachricht wird dann vom PLC Logserver zu der folgenden Nachricht zusammengesetzt (angenommen die Werte werden entsprechen eingesetzt):
-
-~~~
-M:2 P:1 L:2        Temp. Pt100: Mantel = 47.717; Innen = 68.1789
-~~~
-
-### Definieren eines Text-Strings
-
-Die Text-Strings werden im DB3 generiert. Um diese zu bearbeiten, öffnen Sie im SIMATIC Manager mit dem KOP/AWL/FUP-Editor den DB3 "log_messages". Mit der Tastenkombination "Ctrl + 5" wechseln Sie in die Deklarationsansicht des DB's, wo Sie nun die Strings "log_messages.msg1" bis "log_messages.msg99" (DB3.DBW0 bis DBW5096) bearbeiten können. Auch hier müssen Sie anschliessend wieder den DB initialisieren und in die SPS hochladen.
-
-Nachdem Sie die Nachrichten definiert haben, müssen Sie noch die restlichen Werte (INT- und REAL-Werte) der Nachricht zuweisen. Diese Zuweisung erfolgt beim Aufruf der Funktion, welche für das Versenden der Nachrichten zuständig ist.
-
-![Datenbaustein log_messages][db3]
-
-## Funktionsaufrufe
-
-Als nächstes müssen notwendigen Funktionen für die Ausführung des Programmes in den entsprechenden Organisationsbausteine aufgerufen werden. Die Organisationsbausteine wurden in AWL programmiert und sind mit dem KOP/AWL/FUP-Editor öffenbar.
-
-### OB1
-
-In diesem Abschnitt wird der Inhalt des OB1 beschrieben.
-
-~~~
-OB1:  "Main Program Sweep (Cycle)"
-
-Netzwerk 1: 
-The function FC100 "log_master" is called to initialize the connection between 
-the plc and the remote ip address. The return value tells you in which state 
-the connection is in.
-Calling the function FC103 "log_interface" sends the message like you formatted 
-it down below. 
-
- 1 //   CALL  "log_master"			FC100
-   //     RET_VAL:="stateLog_master"		MW20
-
- 2 //   U     M     10.6
-   //   UN    M      2.0
-   //   =     "TestDelay"			M2.1	
-   //   U     M     10.6
-   //   =     M      2.0
-
- 3 //   U     "TestFlag"			M1.0
-   //	U     "TestDelay"			M2.1	
-   //   SPBN  M001
-
- 4 //   CALL  "log_interface"			FC103
-   //    machine:=2
-   //    part   :=1
-   //    level  :=2
-   //    msg    :="log_messages".msg1		P#DB3.DBX0.0	-- Beispiel Text-String
-   //    par1   :=4.771700e+001
-   //    par2   :="temp_sensor".pt100_innen	DB444.DBD0
-
- 5 // M001: NOP   0
-~~~
-
-Erklärung OB1:
-
-1. Bei jedem Zyklus wird der FC100 aufgerufen. Im "log_master" wird der Sendepuffer auf versendbare Log-Nachrichten durchsucht. Zusätzlich wird im "log_master" die Funktion "log_reinit" (FC101) aufgerufen, welche für das Aufbauen und Beenden der Netzwerkverbindung zuständig ist.
-
-2. Mit Hilfe des Taktmerkerbytes (MB10) und eines zweiten Merkers entsteht eine Zeitverzögerung. Diese verzögert das Senden der Nachrichten. Ansonsten würde bei jedem Programmzyklus eine Log-Nachricht versendet werden (sofern M1.0 gesetzt und die Verbindung initialisiert ist).
-
-3. Wenn der Merker "TestFlag" nicht gesetzt ist, überspringt das Programm den Aufruf von FC103 und springt zu Punkt 5. 
-
-4. Wenn "TestFlag" gesetzt ist, wird die Funktion "log_interface" aufgerufen. Im FC103 wird die Log-Nachricht in den Sendepuffer geschrieben und an den PLC Logserver versendet. Bei diesem Aufruf werden auch die oben erwähnten restlichen INT- und REAL-Werte der Nachricht festgelegt.
-
-5. Sprungmarke von SPBN1 und Nulloperation
-
-Die Punkte 1., 3., 4. und 5. müssen zwingend implementiert sein um die Funktionalität zu gewährleisten. Die Bedingungen in Schritt 2. unter welchen die Funktionen aufgerufen werden, können beliebig angepasst werden. Beachten Sie, dass der FC100 zwingend zyklisch aufgerufen werden muss.
-
-Beschreibung der Rückgabewerte (MW20 "stateLog_master") von FC100:
-
-- 0: Normalzustand: Verbindung wurde aufgebaut und die SPS ist bereit Nachrichten zu versenden.
-
-- 1: Verbindung Fehlerhaft: Die SPS kann den anderen Ethernet-Teilnehmer (PLC Logserver) nicht erreichen. Vermutlich befinden sich die beiden IP-Adressen nicht im gleichen Adressbereich oder es besteht keine physische Verbindung.
-
-- 2: Zurücksetzen der Verbindung fehlgeschlagen: Die Funktion "log_reinit" (FC101) wurde nicht richtig ausgeführt. Entweder die SPS neu starten oder die drei Variablen "log_data.init_done", "log_data.disc_done" und "log_data.init_start" mit Hilfe der Variablentabelle mit dem Wert 0 überschreiben
-
-- 3: Sendepuffer overflow: Entweder werden Nachrichten schneller in den Puffer geschrieben als versendet werden können oder es wird zwar in den Puffer geschrieben aber nichts versendet. 
-
-
-### OB100
-Der OB100 und dessen Funktionsaufruf ist zwingend zu implementieren. Auf Grund der Eigenheiten der SIEMENS Funktionsbausteine müssen die Bedingungen unter welchen diese in FC101 aufgerufen werden mit dem FC102 zurückgesetzt werden. Wenn das nicht gemacht wird, kann bei einem Neustart der SPS die Verbindung nicht korrekt beendet und aufgebaut werden.
-
-~~~
-OB100:  "Complete Restart"
-
-Netzwerk 1: 
-This Program Block is needed to reset the connection state when the PLC is 
-starting up.
-
-        UC    "log_startup"			FC102
-~~~
-
-
-
-## Appendix A: Baustein-Übersicht
-
-Eine Übersicht über alle der im S7-Programm verwendete Bausteine und Funktionen.
-
-![Datenbausteine][dblist]
-
-### Organisationsbausteine
-
-OB1 - Standard OB, ruft alle nötigen Funktionen auf
-
-OB100 - Anlauf OB, setzt bei einem Neustart der SPS die Netzwerkfunktionen zurück
-
-### Funktionen
-
-FC100 - Ruft FC101 auf, durchsucht den Sendepuffer nach versendbaren Nachrichten und verschickt diese
-
-FC101 - Zuständig für das aufbauen und beenden der Netzwerkverbindung
-
-FC102 - Sorgt dafür das nach einem Spannungsausfall die Netzwerkverbindung sauber zurückgesetzt wird
-
-FC103 - Schreibt die Nachrichten in den Sendepuffer
-
-
-### Funktionsbausteine
-
-Sämtliche FB's sind Kommunikationsbausteine aus der Siemens Standard Library.
-
-FB65 - TCON stellt eine Verbindung mit einem UDP-Endpunkt her
-
-FB66 - TDISCON beendet die Verbindung 
-
-FB67 - TUSEND verschickt die Daten an den UDP-Endpunkt 
-
-### Datenbausteine
-
-DB3 - Beinhaltet die versendbaren Text-Strings
-
-DB100 - DB für die Variablen des log_master's
-
-DB101 - DB für den Sendepuffer
-
-DB102 - Instanz DB für TCON
-
-DB103 - DB aus UDT65 für die Parameter der TCON Verbindung
-
-DB104 - Instanz DB für TUSEND
-
-DB105 - DB aus UDT66 für die IP-Adresse des UDP-Endpunktes
-
-DB106 - Zweiter Instanz DB für TCON 
-
-DB107 - Instanz DB für TDISCON
-
-DB108 - Zweiter Instanz DB für TDISCON
-
-DB109 - Datenbaustein für die Zuweisung der IP und der local device ID
-
-DB444 - DB zur Demonstration einer Variable als Wert für Parameter 1
-
-UDT65 - Vorlage für die TCON DB's 
-
-UDT66 - Bausteinvorlage für die Adressierung
 
 
 [1]: http://support.automation.siemens.com/WW/llisapi.dll?func=cslib.csinfo&lang=de&objid=51339682&caller=view
-[2]: http://support.automation.siemens.com/WW/llisapi.dll?func=cslib.csinfo&objId=23673044&load=treecontent&lang=en&siteid=cseus&aktprim=0&objaction=csview&extranet=standard&viewreg=WW
-
-[hw]:     hw_config.png
-[ipdb]:   ip_db.png
-[dbinit]: db_init.png
-[ipvat]:  ip_vat.png
-[db3]:    db_3.png
-[dblist]: db_list.png
 [mit]:    http://opensource.org/licenses/MIT
-[plclog]: http://plclog.io
+[plclog]: http://wisol.ch/w/products/plclog/
 
+
+
+
+
+
+
+
+
+ 
